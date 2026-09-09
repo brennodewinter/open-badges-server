@@ -10,4 +10,11 @@
     {{ field(form.password) }}
     {{ form.submit(class="btn") }}
   </form>
+  {% if oidc_enabled %}
+    <div class="sso">
+      <a class="btn btn-secondary" href="{{ url_for('admin.oidc_start', next=request.args.get('next', '')) }}">
+        {{ _("Sign in with single sign-on") }}
+      </a>
+    </div>
+  {% endif %}
 {% endblock %}

@@ -62,6 +62,47 @@ class AdminUser(db.Model, UserMixin):
         return str(self.id)
 
 
+class OidcPending(db.Model):
+    """A pending OIDC authorization: ties the PKCE verifier + nonce to the
+    random ``state`` that travels in the browser redirect, so the verifier
+    never leaves the server (the Flask session cookie is signed but not
+    encrypted, which would leak the PKCE secret). Consumed on callback."""
+
+    __tablename__ = "oidc_pending"
+
+    state = db.Column(db.String(64), primary_key=True)
+    verifier = db.Column(db.String(128), nullable=False)
+    nonce = db.Column(db.String(64), nullable=False)
+    next_path = db.Column(db.String(255), nullable=False, default="")
+    organization_id = db.Column(db.String(64), nullable=False, default="")
+    created_on = db.Column(db.DateTime, nullable=False, default=_utcnow)
+
+
+class OidcUser(UserMixin):
+    """A transient, non-persisted admin identity established by a validated
+    OIDC ID token. flask-login reloads it from the ``oidc:<subject>`` session
+    id via the user-loader; nothing is stored in the database."""
+
+    _PREFIX = "oidc:"
+
+    def __init__(self, subject: str, name: str = "") -> None:
+        self.subject = subject
+        self.name = name
+
+    def get_id(self) -> str:
+        return f"{self._PREFIX}{self.subject}"
+
+    @property
+    def username(self) -> str:
+        return self.name or self.subject
+
+    @classmethod
+    def from_session_id(cls, user_id: str) -> "OidcUser | None":
+        if not user_id.startswith(cls._PREFIX):
+            return None
+        return cls(user_id[len(cls._PREFIX):])
+
+
 class Issuer(db.Model):
     __tablename__ = "issuer"
 

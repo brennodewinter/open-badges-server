@@ -8,7 +8,7 @@ import csv as csvmod
 import io
 import os
 import shutil
-from datetime import datetime, time, timezone
+from datetime import datetime, time, timedelta, timezone
 from urllib.parse import urlsplit
 
 from flask import (
@@ -26,6 +26,7 @@ from flask_babel import gettext as _
 from flask_login import current_user, login_required, login_user, logout_user
 
 from .extensions import db, limiter
+from . import oidc
 from .forms import (
     AwardCsvForm,
     AwardForm,
@@ -42,7 +43,7 @@ from .badgeart import compose_badge
 from .images import ImageError, save_square_png
 from .issuing import AlreadyAwarded, award_badge, resend_email
 from .mail import mail_configured
-from .models import AdminUser, Assertion, BadgeClass, Issuer, slugify
+from .models import AdminUser, Assertion, BadgeClass, Issuer, OidcPending, OidcUser, slugify
 from .openbadges import assertion_id as assertion_public_id
 
 bp = Blueprint("admin", __name__)
@@ -50,7 +51,12 @@ bp = Blueprint("admin", __name__)
 
 @bp.before_request
 def _require_login():
-    if request.endpoint in {"admin.login", "admin.static"}:
+    if request.endpoint in {
+        "admin.login",
+        "admin.static",
+        "admin.oidc_start",
+        "admin.oidc_callback",
+    }:
         return None
     if not current_user.is_authenticated:
         return current_app.login_manager.unauthorized()
@@ -151,6 +157,100 @@ def logout():
     logout_user()
     flash(_("Signed out."), "ok")
     return redirect(url_for("public.index"))
+
+
+# --- OIDC single sign-on (opt-in) ----------------------------------------
+
+
+def _purge_expired_oidc() -> None:
+    cutoff = datetime.now(timezone.utc) - _OIDC_TTL
+    OidcPending.query.filter(OidcPending.created_on < cutoff).delete(
+        synchronize_session=False
+    )
+
+
+# ponytail: a 10-minute ceiling on completing an OIDC redirect. Long enough for
+# a user to authenticate at the IdP, short enough that abandoned flows don't
+# accumulate. Upgrade path: a periodic cleanup job if SSO volume ever warrants.
+_OIDC_TTL = timedelta(minutes=10)
+
+
+@bp.get("/oidc")
+def oidc_start():
+    if not oidc.configured(current_app):
+        abort(404)
+    nxt = _safe_redirect_target(request.args.get("next", "")) or "/admin/"
+    organization_id = (request.args.get("organization_id") or "").strip()
+    state = oidc.new_token()
+    nonce = oidc.new_token()
+    verifier, challenge = oidc.pkce_pair()
+    _purge_expired_oidc()
+    db.session.add(
+        OidcPending(
+            state=state,
+            verifier=verifier,
+            nonce=nonce,
+            next_path=nxt,
+            organization_id=organization_id[:64],
+        )
+    )
+    db.session.commit()
+    redirect_uri = url_for("admin.oidc_callback", _external=True)
+    try:
+        doc = oidc.discover(current_app)
+        target = oidc.authorization_url(
+            current_app,
+            doc,
+            redirect_uri=redirect_uri,
+            state=state,
+            nonce=nonce,
+            challenge=challenge,
+        )
+    except oidc.OidcError as exc:
+        flash(str(exc), "error")
+        return redirect(url_for("admin.login"))
+    return redirect(target)
+
+
+@bp.get("/oidc/callback")
+def oidc_callback():
+    # The IdP returns the user here with ?code=...&state=... (or ?error=...).
+    state = request.args.get("state", "")
+    pending = db.session.get(OidcPending, state) if state else None
+    if pending is None:
+        flash(_("The sign-in link is expired or invalid."), "error")
+        return redirect(url_for("admin.login"))
+    nxt = pending.next_path or "/admin/"
+    # Consume the pending row before doing anything else so a replay is useless.
+    db.session.delete(pending)
+    db.session.commit()
+    if request.args.get("error"):
+        flash(_("The identity-provider refused the sign-in."), "error")
+        return redirect(url_for("admin.login"))
+    code = request.args.get("code")
+    if not code:
+        flash(_("The sign-in came back without a code."), "error")
+        return redirect(url_for("admin.login"))
+    redirect_uri = url_for("admin.oidc_callback", _external=True)
+    try:
+        doc = oidc.discover(current_app)
+        tokens = oidc.exchange_code(
+            current_app, doc, code=code, redirect_uri=redirect_uri, verifier=pending.verifier
+        )
+        claims = oidc.validate_id_token(
+            current_app, doc, tokens["id_token"], expected_nonce=pending.nonce
+        )
+    except oidc.OidcError as exc:
+        flash(str(exc), "error")
+        return redirect(url_for("admin.login"))
+    subject = str(claims.get("sub") or "")
+    if not subject:
+        flash(_("The identity-provider gave no subject."), "error")
+        return redirect(url_for("admin.login"))
+    name = str(claims.get("name") or claims.get("preferred_username") or "")
+    login_user(OidcUser(subject, name))
+    current_app.logger.info("OIDC admin %s signed in", subject)
+    return redirect(nxt)
 
 
 # --- dashboard ---------------------------------------------------------

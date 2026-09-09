@@ -93,6 +93,18 @@ class Config:
 
         self.SITE_TITLE = _str("SITE_TITLE", "Open Badges")
 
+        # Optional OIDC single sign-on for the admin area. All optional; when
+        # OIDC_ISSUER + OIDC_CLIENT_ID are both empty, SSO is disabled and the
+        # local admin login is the only way in (the project default).
+        self.OIDC_ISSUER = _str("OIDC_ISSUER")
+        self.OIDC_CLIENT_ID = _str("OIDC_CLIENT_ID")
+        self.OIDC_CLIENT_SECRET = _str("OIDC_CLIENT_SECRET")
+        # Server-side origin for discovery/token/JWKS when the server reaches
+        # the IdP at a different host than the browser (e.g. a container).
+        self.OIDC_BACKCHANNEL_ORIGIN = _str("OIDC_BACKCHANNEL_ORIGIN")
+        self.OIDC_SCOPES = _str("OIDC_SCOPES", "openid profile email")
+        self.OIDC_TIMEOUT_SECONDS = _int("OIDC_TIMEOUT_SECONDS", 10)
+
         # Internationalisation
         self.LANGUAGES = [
             code.strip()

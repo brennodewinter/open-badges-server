@@ -79,11 +79,17 @@ def create_app(config_overrides: dict | None = None, *, data_dir: str | None = N
         content_security_policy=_CSP,
     )
 
-    from .models import AdminUser
+    from .models import AdminUser, OidcUser
 
     @login_manager.user_loader
     def _load_user(user_id: str):
-        return db.session.get(AdminUser, int(user_id))
+        oidc_user = OidcUser.from_session_id(user_id)
+        if oidc_user is not None:
+            return oidc_user
+        try:
+            return db.session.get(AdminUser, int(user_id))
+        except (TypeError, ValueError):
+            return None
 
     from .admin import bp as admin_bp
     from .claim_views import bp as claim_bp
@@ -126,6 +132,7 @@ def create_app(config_overrides: dict | None = None, *, data_dir: str | None = N
 
         return {
             "site_title": app.config["SITE_TITLE"],
+            "oidc_enabled": bool(app.config.get("OIDC_ISSUER") and app.config.get("OIDC_CLIENT_ID")),
             "badge_image_url": badge_image_url,
             "languages": languages(),
             "current_locale": str(get_locale() or app.config["BABEL_DEFAULT_LOCALE"]),
