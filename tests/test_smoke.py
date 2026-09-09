@@ -68,6 +68,19 @@ def test_project_logo_links_to_repo(client, auth_client):
     assert client.get("/static/project-logo.png").status_code == 200
 
 
+def test_site_logo_can_be_overridden(app, client):
+    app.config["SITE_LOGO"] = "https://vigilis.example/assets/logo.png"
+    body = client.get("/").data.decode()
+    assert 'src="https://vigilis.example/assets/logo.png"' in body
+    assert "/static/project-logo.png" not in body
+
+
+def test_site_logo_can_be_a_static_filename(app, client):
+    app.config["SITE_LOGO"] = "vigilis-logo.png"
+    body = client.get("/").data.decode()
+    assert 'src="/static/vigilis-logo.png"' in body
+
+
 def test_issuer_json(client):
     doc = client.get("/issuer/main.json").get_json()
     assert doc["@context"] == "https://w3id.org/openbadges/v2"

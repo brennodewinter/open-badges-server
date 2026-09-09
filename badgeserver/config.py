@@ -92,6 +92,10 @@ class Config:
         self.MAIL_REPLY_TO = _str("MAIL_REPLY_TO")
 
         self.SITE_TITLE = _str("SITE_TITLE", "Open Badges")
+        # Header logo: a filename in the static/ directory, or an absolute
+        # http(s) URL. Defaults to the bundled project logo. Operators who
+        # rebrand the server drop their logo in static/ and set this.
+        self.SITE_LOGO = _str("SITE_LOGO", "project-logo.png")
 
         # Internationalisation
         self.LANGUAGES = [

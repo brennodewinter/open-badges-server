@@ -124,8 +124,15 @@ def create_app(config_overrides: dict | None = None, *, data_dir: str | None = N
                 version = 0
             return url_for("public.badge_image", slug=badge.slug, v=version)
 
+        logo = app.config["SITE_LOGO"]
+        if logo.startswith(("http://", "https://", "/")):
+            site_logo_src = logo
+        else:
+            site_logo_src = url_for("static", filename=logo)
+
         return {
             "site_title": app.config["SITE_TITLE"],
+            "site_logo_src": site_logo_src,
             "badge_image_url": badge_image_url,
             "languages": languages(),
             "current_locale": str(get_locale() or app.config["BABEL_DEFAULT_LOCALE"]),
