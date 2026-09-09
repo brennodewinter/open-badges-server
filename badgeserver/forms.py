@@ -65,7 +65,12 @@ class ChangePasswordForm(FlaskForm):
 class IssuerForm(FlaskForm):
     slug = StringField(_l("Slug"), validators=[Optional(), Length(max=64)])
     name = StringField(_l("Name"), validators=[DataRequired(), Length(max=255)])
-    url = StringField(_l("Website URL"), validators=[DataRequired(), URL(), Length(max=255)])
+    # require_tld=False so a self-hosted deployment can list a LAN or
+    # loopback address (e.g. http://localhost:1428) as the issuer website.
+    url = StringField(
+        _l("Website URL"),
+        validators=[DataRequired(), URL(require_tld=False), Length(max=255)],
+    )
     email = StringField(_l("Contact e-mail"), validators=[DataRequired(), Email(), Length(max=255)])
     description = TextAreaField(_l("Description"), validators=[Optional(), Length(max=4000)])
     image = FileField(_l("Logo (optional)"), validators=[FileAllowed(_IMAGE_EXT, _IMAGES_ONLY)])
@@ -82,7 +87,8 @@ class BadgeClassForm(FlaskForm):
         _l("Criteria (what it is awarded for)"), validators=[Optional(), Length(max=4000)]
     )
     criteria_url = StringField(
-        _l("Criteria URL (optional)"), validators=[Optional(), URL(), Length(max=255)]
+        _l("Criteria URL (optional)"),
+        validators=[Optional(), URL(require_tld=False), Length(max=255)],
     )
     tags = StringField(_l("Tags (comma separated)"), validators=[Optional(), Length(max=512)])
     self_service = BooleanField(_l("Let anyone claim this badge"))
@@ -142,7 +148,8 @@ class AwardForm(FlaskForm):
     )
     issued_on = DateField(_l("Issued on"), validators=[Optional()])
     evidence_url = StringField(
-        _l("Evidence URL (optional)"), validators=[Optional(), URL(), Length(max=255)]
+        _l("Evidence URL (optional)"),
+        validators=[Optional(), URL(require_tld=False), Length(max=255)],
     )
     narrative = TextAreaField(_l("Note (optional)"), validators=[Optional(), Length(max=4000)])
     send_email = BooleanField(_l("Send an e-mail notification"), default=True)

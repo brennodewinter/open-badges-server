@@ -68,6 +68,25 @@ def test_project_logo_links_to_repo(client, auth_client):
     assert client.get("/static/project-logo.png").status_code == 200
 
 
+
+def test_issuer_accepts_loopback_website_url(auth_client):
+    # A self-hosted deployment may point the issuer website at a LAN or
+    # loopback address (e.g. the OciServe instance on http://localhost:1428).
+    r = auth_client.post(
+        "/admin/issuer",
+        data={
+            "name": "Test Org",
+            "url": "http://localhost:1428",
+            "email": "badges@example.com",
+        },
+        follow_redirects=False,
+    )
+    assert r.status_code == 302
+    assert r.headers["Location"].endswith("/admin/issuer")
+    doc = auth_client.get("/issuer/main.json").get_json()
+    assert doc["url"] == "http://localhost:1428"
+
+
 def test_issuer_json(client):
     doc = client.get("/issuer/main.json").get_json()
     assert doc["@context"] == "https://w3id.org/openbadges/v2"
