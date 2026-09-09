@@ -107,6 +107,20 @@ python3 -m flask --app wsgi.py run --port 4000
 `SESSION_COOKIE_SECURE` defaults to false for an `http://` `EXTERNAL_URL`, so
 login works over plain HTTP. Data goes to `./instance/` in this mode.
 
+## Single sign-on (optional)
+
+The admin area uses a local username/password login by default. To let
+administrators sign in via an external identity provider instead, set
+`OIDC_ISSUER` and `OIDC_CLIENT_ID` in `badges.env` (see
+`deploy/badges.env.example`). The server then offers an
+Authorization Code + PKCE (S256) flow at `/admin/oidc`; the local login
+remains available as a fallback.
+
+When badge administration is delegated to a parent application (e.g.
+OciServe), set `OIDC_AUTHORIZATION_URL` to the endpoint that authorises the
+user for a given organization — the access token is sent as a Bearer header
+and a 200/204 response grants access.
+
 ## Tests
 
 ```sh

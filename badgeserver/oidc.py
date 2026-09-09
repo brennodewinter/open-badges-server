@@ -24,7 +24,7 @@ import base64
 import hashlib
 import secrets
 from functools import lru_cache
-from urllib.parse import urlsplit, urlunsplit
+from urllib.parse import quote, urlsplit, urlunsplit
 
 import jwt
 import requests
@@ -115,7 +115,10 @@ def exchange_code(app, doc: dict, *, code: str, redirect_uri: str,
         data["client_secret"] = secret
     try:
         resp = requests.post(
-            _backchannel(app, doc["token_endpoint"]), data=data, timeout=_timeout(app)
+            _backchannel(app, doc["token_endpoint"]),
+            data=data,
+            timeout=_timeout(app),
+            allow_redirects=False,
         )
     except requests.RequestException as exc:
         raise OidcError("De identity-provider is niet bereikbaar.") from exc
@@ -145,7 +148,10 @@ def validate_id_token(app, doc: dict, id_token: str, *, expected_nonce: str) -> 
             signing_key.key,
             algorithms=alg,
             issuer=issuer,
-            options={"verify_aud": False},
+            options={
+                "verify_aud": False,
+                "require": ["exp", "iat", "iss", "sub", "aud", "nonce"],
+            },
         )
     except jwt.PyJWTError as exc:
         raise OidcError("Het inlogtoken is ongeldig.") from exc
@@ -154,6 +160,28 @@ def validate_id_token(app, doc: dict, id_token: str, *, expected_nonce: str) -> 
         aud = [aud]
     if client_id not in (aud or []) and claims.get("azp") != client_id:
         raise OidcError("Het inlogtoken is niet voor deze client.")
-    if claims.get("nonce") != expected_nonce:
+    if not secrets.compare_digest(str(claims.get("nonce", "")), expected_nonce):
         raise OidcError("Het inlogtoken is niet voor deze aanmelding.")
     return claims
+
+
+def check_authorization(app, access_token: str, organization_id: str) -> None:
+    """When ``OIDC_AUTHORIZATION_URL`` is set, ask the parent application
+    (e.g. OciServe) whether this user may administer badges for *organization_id*.
+    The URL template contains ``{organization_id}``. A 200/204 means allowed;
+    anything else raises :class:`OidcError`."""
+    template = (app.config.get("OIDC_AUTHORIZATION_URL") or "").strip()
+    if not template:
+        return
+    check_url = template.replace("{organization_id}", quote(organization_id, safe=""))
+    try:
+        resp = requests.get(
+            check_url,
+            headers={"Authorization": f"Bearer {access_token}"},
+            timeout=_timeout(app),
+            allow_redirects=False,
+        )
+    except requests.RequestException as exc:
+        raise OidcError("De autorisatiecontrole is niet bereikbaar.") from exc
+    if resp.status_code not in (200, 204):
+        raise OidcError("Je account mag geen badges beheren.")

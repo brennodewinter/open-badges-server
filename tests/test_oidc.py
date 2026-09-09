@@ -146,3 +146,48 @@ def test_oidc_callback_surfaces_token_error(oidc_app, client, monkeypatch):
     state = parse_qs(urlsplit(start.headers["Location"]).query)["state"][0]
     r = client.get(f"/admin/oidc/callback?state={state}&code=code123")
     assert r.headers["Location"].endswith("/admin/login")
+
+
+def test_oidc_start_requires_organization_when_authorization_url_set(
+    oidc_app, client, monkeypatch
+):
+    _enable_idp(monkeypatch)
+    oidc_app.config["OIDC_AUTHORIZATION_URL"] = (
+        "https://api.test/organizations/{organization_id}/badges"
+    )
+    r = client.get("/admin/oidc")
+    assert r.headers["Location"].endswith("/admin/login")
+
+
+def test_oidc_callback_checks_authorization_url(oidc_app, client, monkeypatch):
+    _enable_idp(monkeypatch)
+    oidc_app.config["OIDC_AUTHORIZATION_URL"] = (
+        "https://api.test/organizations/{organization_id}/badges"
+    )
+    calls = []
+
+    def _check(app, token, org):
+        calls.append((token, org))
+
+    monkeypatch.setattr(oidc, "check_authorization", _check)
+    start = client.get("/admin/oidc?organization_id=org-42")
+    state = parse_qs(urlsplit(start.headers["Location"]).query)["state"][0]
+    cb = client.get(f"/admin/oidc/callback?state={state}&code=code123")
+    assert cb.status_code == 302
+    assert calls == [("at", "org-42")]
+
+
+def test_oidc_callback_rejects_unauthorized_user(oidc_app, client, monkeypatch):
+    _enable_idp(monkeypatch)
+    oidc_app.config["OIDC_AUTHORIZATION_URL"] = (
+        "https://api.test/organizations/{organization_id}/badges"
+    )
+
+    def _deny(*a, **k):
+        raise oidc.OidcError("Je account mag geen badges beheren.")
+
+    monkeypatch.setattr(oidc, "check_authorization", _deny)
+    start = client.get("/admin/oidc?organization_id=org-42")
+    state = parse_qs(urlsplit(start.headers["Location"]).query)["state"][0]
+    cb = client.get(f"/admin/oidc/callback?state={state}&code=code123")
+    assert cb.headers["Location"].endswith("/admin/login")

@@ -181,6 +181,9 @@ def oidc_start():
         abort(404)
     nxt = _safe_redirect_target(request.args.get("next", "")) or "/admin/"
     organization_id = (request.args.get("organization_id") or "").strip()
+    if current_app.config.get("OIDC_AUTHORIZATION_URL") and not organization_id:
+        flash(_("An organization is required for single sign-on."), "error")
+        return redirect(url_for("admin.login"))
     state = oidc.new_token()
     nonce = oidc.new_token()
     verifier, challenge = oidc.pkce_pair()
@@ -239,6 +242,9 @@ def oidc_callback():
         )
         claims = oidc.validate_id_token(
             current_app, doc, tokens["id_token"], expected_nonce=pending.nonce
+        )
+        oidc.check_authorization(
+            current_app, tokens["access_token"], pending.organization_id
         )
     except oidc.OidcError as exc:
         flash(str(exc), "error")
